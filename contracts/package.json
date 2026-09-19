@@ -1,0 +1,15 @@
+{
+  "name": "bdag-multisig-contracts",
+  "scripts": {
+    "deploy:safe": "hardhat run scripts/deploy-safe.ts --network blockdag",
+    "deploy:vote": "hardhat run scripts/deploy-vote.ts --network blockdag"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.0"
+  },
+  "dependencies": {
+    "@safe-global/safe-smart-account": "1.4.1",
+    "ethers": "^6.13.0"
+  }
+}
