@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BDAG Treasury Dashboard</title>
+<style>
+  :root {
+    --bg: #0B0D14;
+    --card: #12151F;
+    --card2: #171B28;
+    --border: #232941;
+    --text: #FFFFFF;
+    --muted: #8B93AD;
+    --purple: #7C5CFF;
+    --cyan: #22D3EE;
+    --green: #34D399;
+    --red: #F87171;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .glow-bg {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(600px 300px at 15% -5%, rgba(124,92,255,0.18), transparent 70%),
+      radial-gradient(500px 280px at 90% 0%, rgba(34,211,238,0.12), transparent 70%);
+  }
+  .wrap { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--purple), var(--cyan));
+    box-shadow: 0 0 24px rgba(124,92,255,0.45);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 15px; color: #fff; letter-spacing: -0.5px;
+  }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+  .sub { color: var(--muted); font-size: 12px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; margin-top: 2px; }
+  .badges { display: flex; gap: 8px; }
+  .badge {
+    font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); background: var(--card);
+  }
+  .badge.net { color: var(--cyan); border-color: rgba(34,211,238,0.35); background: rgba(34,211,238,0.08); }
+  .badge.multisig { color: #C4B5FD; border-color: rgba(124,92,255,0.4); background: rgba(124,92,255,0.1); }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-top: 28px; }
+  .stat {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px;
+    position: relative; overflow: hidden;
+  }
+  .stat::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--purple), var(--cyan)); opacity: 0.7;
+  }
+  .stat .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .stat .value { font-size: 22px; font-weight: 700; margin-top: 6px; }
+  .stat .hint { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+  .grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; margin-top: 28px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+  .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .card .desc { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+
+  .tx { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-top: 10px; }
+  .tx-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .tx-title { font-weight: 600; font-size: 13px; }
+  .tx-amount { font-weight: 700; font-size: 13px; color: var(--cyan); }
+  .tx-meta { color: var(--muted); font-size: 11px; font-family: ui-monospace, Menlo, monospace; margin-top: 3px; }
+  .sig-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 10px; flex-wrap: wrap; }
+  .sigs { display: flex; gap: 6px; }
+  .dot { width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+  .dot.signed { background: rgba(52,211,153,0.15); color: var(--green); border: 1px solid rgba(52,211,153,0.4); }
+  .dot.waiting { background: rgba(139,147,173,0.1); color: var(--muted); border: 1px dashed var(--border); }
+  .btn {
+    border: none; cursor: pointer; font-size: 12px; font-weight: 600; padding: 8px 16px; border-radius: 10px;
+    transition: all .15s ease;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--purple), #5B8CFF); color: #fff;
+    box-shadow: 0 4px 18px rgba(124,92,255,0.35);
+  }
+  .btn-primary:hover { box-shadow: 0 4px 26px rgba(124,92,255,0.55); transform: translateY(-1px); }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--purple); }
+  .btn-exec { background: rgba(52,211,153,0.12); color: var(--green); border: 1px solid rgba(52,211,153,0.45); }
+  .btn-exec:hover { background: rgba(52,211,153,0.22); }
+  .ready-note { color: var(--green); font-size: 11px; }
+
+  .bar { height: 8px; background: #1E2333; border-radius: 999px; overflow: hidden; margin-top: 10px; display: flex; }
+  .bar .for { background: linear-gradient(90deg, var(--purple), var(--cyan)); height: 100%; }
+  .bar .against { background: rgba(248,113,113,0.55); height: 100%; margin-left: 2px; }
+  .bar-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 6px; }
+  .quorum { color: var(--cyan); }
+
+  .owner { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .owner:last-child { border-bottom: none; }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff;
+  }
+  .owner .addr { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .owner .role { color: var(--muted); font-size: 11px; }
+
+  .history-item { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 12px; align-items: center; }
+  .history-item:last-child { border-bottom: none; }
+  .history-item .amt { color: var(--muted); }
+  .chip { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+  .chip.exec { background: rgba(52,211,153,0.12); color: var(--green); }
+  .chip.received { background: rgba(34,211,238,0.1); color: var(--cyan); }
+
+  footer { margin-top: 36px; color: var(--muted); font-size: 11px; text-align: center; }
+  footer code { color: var(--cyan); font-family: ui-monospace, Menlo, monospace; }
+</style>
+</head>
+<body>
+<div class="glow-bg"></div>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="logo">BDAG</div>
+      <div>
+        <h1>Treasury Dashboard</h1>
+        <div class="sub">0x7A2b…c41D · Safe multisig</div>
+      </div>
+    </div>
+    <div class="badges">
+      <span class="badge net">● BlockDAG Testnet</span>
+      <span class="badge multisig">2-of-3 multisig</span>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat">
+      <div class="label">BDAG balance</div>
+      <div class="value">128,450.20</div>
+      <div class="hint">≈ $19,268 at current rate</div>
+    </div>
+    <div class="stat">
+      <div class="label">gBDAG held (governance)</div>
+      <div class="value">25,000</div>
+      <div class="hint">vote weight for proposals</div>
+    </div>
+    <div class="stat">
+      <div class="label">Pending transactions</div>
+      <div class="value">3</div>
+      <div class="hint">1 ready to execute</div>
+    </div>
+    <div class="stat">
+      <div class="label">Active proposals</div>
+      <div class="value">2</div>
+      <div class="hint">voting closes in 2 days</div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Pending transactions</h2>
+      <div class="desc">Signatures are collected off-chain. The last signer executes and pays gas.</div>
+
+      <div class="tx">
+        <div class="tx-top">
+          <span class="tx-title">Transfer — community grants</span>
+          <span class="tx-amount">12,000 BDAG</span>
+        </div>
+        <div class="tx-meta">to 0x91f…04e2 · calldata: 0x (plain transfer)</div>
+        <div class="sig-row">
+          <div class="sigs">
+            <span class="dot signed">V</span>
+            <span class="dot signed">M</span>
+            <span class="dot waiting">?</span>
+          </div>
+          <button class="btn btn-exec">Execute (2/3 signed)</button>
+        </div>
+      </div>
+
+      <div class="tx">
+        <div class="tx-top">
+          <span class="tx-title">Swap — treasury diversification</span>
+          <span class="tx-amount">5,000 BDAG</span>
+        </div>
+        <div class="tx-meta">to Router contract · calldata: swapExactBDAGForUSDT(…)</div>
+        <div class="sig-row">
+          <div class="sigs">
+            <span class="dot signed">V</span>
+            <span class="dot waiting">?</span>
+            <span class="dot waiting">?</span>
+          </div>
+          <button class="btn btn-primary">Sign</button>
+        </div>
+      </div>
+
+      <div class="tx">
+        <div class="tx-top">
+          <span class="tx-title">Owner management — add owner</span>
+          <span class="tx-amount">0 BDAG</span>
+        </div>
+        <div class="tx-meta">to Safe itself · addOwnerWithThreshold(0xd4e…9b31, 3)</div>
+        <div class="sig-row">
+          <div class="sigs">
+            <span class="dot signed">M</span>
+            <span class="dot waiting">?</span>
+            <span class="dot waiting">?</span>
+          </div>
+          <button class="btn btn-primary">Sign</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Owners &amp; threshold</h2>
+      <div class="desc">Two of three signatures required to execute.</div>
+      <div class="owner">
+        <div class="avatar" style="background: linear-gradient(135deg, #7C5CFF, #B34DFF);">V</div>
+        <div>
+          <div class="addr">0x4C7d…8A1b</div>
+          <div class="role">Vaughan · proposer / executor</div>
+        </div>
+      </div>
+      <div class="owner">
+        <div class="avatar" style="background: linear-gradient(135deg, #22D3EE, #3B82F6);">M</div>
+        <div>
+          <div class="addr">0x91f4…04e2</div>
+          <div class="role">Owner 2 · signer</div>
+        </div>
+      </div>
+      <div class="owner">
+        <div class="avatar" style="background: linear-gradient(135deg, #34D399, #22D3EE);">C</div>
+        <div>
+          <div class="addr">0xd4e9…9b31</div>
+          <div class="role">Owner 3 · signer (adding)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Token-gated voting</h2>
+      <div class="desc">Weighted by gBDAG balance · quorum 10,000 · passing a vote queues a Safe transaction; it never auto-executes.</div>
+
+      <div class="tx" style="border-color: rgba(124,92,255,0.35);">
+        <div class="tx-top">
+          <span class="tx-title">#3 Fund community quest platform — 40,000 BDAG</span>
+          <span class="ready-note">On track to pass</span>
+        </div>
+        <div class="bar">
+          <div class="for" style="width: 83%;"></div>
+          <div class="against" style="width: 17%;"></div>
+        </div>
+        <div class="bar-labels">
+          <span>For 14,200 · Against 2,900</span>
+          <span>quorum <span class="quorum">met ✓</span> · ends in 2d 04h</span>
+        </div>
+        <div class="sig-row">
+          <span class="ready-note">Your vote counts once, weighted 25,000 gBDAG</span>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-primary" onclick="vote(this, true)">Vote for</button>
+            <button class="btn btn-ghost" onclick="vote(this, false)">Vote against</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tx">
+        <div class="tx-top">
+          <span class="tx-title">#4 Lower quorum from 10,000 → 7,500</span>
+          <span style="color: var(--muted); font-size:11px;">Trending no</span>
+        </div>
+        <div class="bar">
+          <div class="for" style="width: 38%;"></div>
+          <div class="against" style="width: 62%;"></div>
+        </div>
+        <div class="bar-labels">
+          <span>For 3,100 · Against 5,050</span>
+          <span>quorum <span style="color: var(--red);">not met yet</span> · ends in 2d 04h</span>
+        </div>
+        <div class="sig-row">
+          <span class="ready-note">Your vote counts once, weighted 25,000 gBDAG</span>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-primary" onclick="vote(this, true)">Vote for</button>
+            <button class="btn btn-ghost" onclick="vote(this, false)">Vote against</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Recent activity</h2>
+      <div class="desc">On-chain history, indexed from SafeL2 events.</div>
+      <div class="history-item">
+        <span>Received — ecosystem donation</span>
+        <span class="amt">+6,000 BDAG</span>
+        <span class="chip received">Received</span>
+      </div>
+      <div class="history-item">
+        <span>Audit payment — reviewer #2</span>
+        <span class="amt">−2,500 BDAG</span>
+        <span class="chip exec">Executed</span>
+      </div>
+      <div class="history-item">
+        <span>Proposal #2 executed — RPC node hosting</span>
+        <span class="amt">−800 BDAG</span>
+        <span class="chip exec">Executed</span>
+      </div>
+      <div class="history-item">
+        <span>Received — initial treasury funding</span>
+        <span class="amt">+145,000 BDAG</span>
+        <span class="chip received">Received</span>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Preview mockup for the <code>bdag-multisig</code> starter project · Safe contracts deployed unmodified ·
+    server holds no keys, only signature storage · <code>bdag-safe on BlockDAG testnet</code>
+  </footer>
+</div>
+
+<script>
+  function vote(btn, support) {
+    const card = btn.closest('.tx');
+    const buttons = card.querySelectorAll('.btn');
+    buttons.forEach(b => b.disabled = true);
+    btn.textContent = support ? '✓ Voted for' : '✗ Voted against';
+    btn.style.opacity = '0.6';
+  }
+</script>
+</body>
+</html>
