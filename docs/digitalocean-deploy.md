@@ -24,7 +24,10 @@ The AI does not need your DigitalOcean password. It prepares the repo; you run c
 
 **Do not start with “deploy to the droplet.”** Start with a **green image build**, then **pull on the server**.
 
-Before Docker work, read [sqlite-vs-postgres.md](./sqlite-vs-postgres.md) — this API should use **SQLite on a single droplet**, not Postgres.
+Before Docker work:
+
+- [sqlite-vs-postgres.md](./sqlite-vs-postgres.md) — use **SQLite** on a single droplet, not Postgres
+- [contract-deploy.md](./contract-deploy.md) — deploy Safe + `BdagVote` from a laptop via community RPC, then bake addresses into the web image
 
 ---
 
@@ -357,5 +360,7 @@ docker compose pull && docker compose up -d
 
 ## Related
 
-- Root [README.md](../README.md) — local setup, Safe/vote deploy order, security notes
+- [sqlite-vs-postgres.md](./sqlite-vs-postgres.md) — API storage
+- [contract-deploy.md](./contract-deploy.md) — community RPC contract deploy + Docker address wiring
+- Root [README.md](../README.md) — product overview and security notes
 - After Docker/Compose exist in the repo, keep this doc updated if paths or service names change
