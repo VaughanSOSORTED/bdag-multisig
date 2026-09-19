@@ -42,35 +42,50 @@ Rules:
 
 ## Community RPC endpoints
 
-Point Hardhat and the web app at a public / community RPC for the chain you intend to use. Confirm `eth_chainId` matches before deploying.
+Point Hardhat and the web app at a **community** RPC for BlockDAG mainnet (chain **1404**). Confirm `eth_chainId` before deploying.
 
-### BlockDAG mainnet (typical production target)
+### Do not use bdagscan RPC
 
-| Setting | Example |
-|---------|---------|
-| Chain ID | `1404` |
-| RPC | `https://rpc.bdagscan.com/` (same family as MetaMask community setups) |
-| Explorer | `https://bdagscan.com` |
+**Never use `https://rpc.bdagscan.com` (or wallet configs that point MetaMask at it) for this project.**
 
-### Testnet / alternate
+That endpoint is on a **diverged fork**. It may still report chain ID `1404`, but block hashes and tip history do **not** match the community/canonical cluster. Contracts deployed “to 1404” via bdagscan are **not** on the network your users should be on.
 
-Use the current official testnet RPC and chain ID from BlockDAG docs if you are not ready for mainnet. The repo scaffold historically used placeholders (`CHAIN_ID=991` etc.) — **replace those with real values** from docs before you spend real funds.
+### Known-good community RPCs (mainnet, chain 1404)
+
+Prefer these (order is a reasonable try-order; any healthy one is fine):
+
+| RPC | Notes |
+|-----|--------|
+| `https://rpc.blockdag.engineering/` | Community / engineering |
+| `https://rpc.east.bdag-us.org/` | Community |
+| `https://rpc.west.bdag-us.org/` | Community |
+| `https://rpc.dvdmining.com` | Community |
+| `https://rpc.capedag.com/` | Community |
+
+| Setting | Value |
+|---------|--------|
+| Chain ID | `1404` (`0x57c`) |
+| Explorer | `https://explorer.blockdag.engineering/` |
+
+Source for this list: community live-node board style configs (same set used for community load testing). Re-check https://bdag.community if the board updates.
+
+Optional failover some teams also use: `https://rpc.welshdag.trade/` — still community-side; **not** bdagscan.
+
+### Testnet
+
+If you are not ready for mainnet, use a documented **testnet** RPC/chain ID from BlockDAG docs (scaffold placeholders like `CHAIN_ID=991` are not mainnet). Do not “fix” by pointing at `rpc.bdagscan.com`.
 
 ### RPC gotchas
 
-- Some community RPCs (including mainnet) may return **Cloudflare / HTML** to bare Node scripts or datacenter IPs. If Hardhat says invalid JSON-RPC:
-  - Retry without VPN
-  - Try from a residential network
-  - Or use another documented community RPC that allows your IP
-- Always verify:
+- Some community RPCs return **Cloudflare / HTML** to bare Node or datacenter IPs. If Hardhat says invalid JSON-RPC: retry without VPN, try another URL from the table above, or send browser-like headers if your tooling supports it.
+- Always verify chain ID **and**, when possible, that a recent block hash matches another community RPC (same hash on two community nodes ⇒ same fork):
 
   ```bash
-  # example: cast or curl eth_chainId
   curl -s -X POST "$RPC_URL" -H 'content-type: application/json' \
     --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
   ```
 
-  Decode the hex result and confirm it matches `CHAIN_ID` in `.env`.
+  Expect `"result":"0x57c"` for mainnet. If two RPCs both say `1404` but disagree on `eth_getBlockByNumber` hashes, you are on different forks — drop the bad endpoint.
 
 ---
 
@@ -86,9 +101,10 @@ Set at least:
 
 ```bash
 # Laptop only — never copy this file to the droplet
-RPC_URL=https://rpc.bdagscan.com/
+# Use a community RPC from the table above — NOT rpc.bdagscan.com
+RPC_URL=https://rpc.blockdag.engineering/
 CHAIN_ID=1404
-EXPLORER_URL=https://bdagscan.com
+EXPLORER_URL=https://explorer.blockdag.engineering/
 DEPLOYER_PRIVATE_KEY=0xYOUR_DEPLOYER_KEY_WITHOUT_SHARING_IT
 
 # After you have a Safe treasury + vote token (Phase C):
@@ -179,9 +195,9 @@ Set in the repo **Settings → Secrets and variables → Actions → Variables**
 
 | Variable | Example |
 |----------|---------|
-| `NEXT_PUBLIC_RPC_URL` | `https://rpc.bdagscan.com/` |
+| `NEXT_PUBLIC_RPC_URL` | `https://rpc.blockdag.engineering/` (or another community RPC above — never bdagscan) |
 | `NEXT_PUBLIC_CHAIN_ID` | `1404` |
-| `NEXT_PUBLIC_EXPLORER_URL` | `https://bdagscan.com` |
+| `NEXT_PUBLIC_EXPLORER_URL` | `https://explorer.blockdag.engineering/` |
 | `NEXT_PUBLIC_API_URL` | `https://your.domain/api` |
 | `NEXT_PUBLIC_BDAG_VOTE` | `0x…` from `blockdag.json` |
 | `NEXT_PUBLIC_BDAG_VOTE_TOKEN` | `0x…` |
@@ -243,7 +259,9 @@ Add / improve contract deploy → Docker wiring for this repo:
    or on the DigitalOcean droplet.
 
 4. Update .env.example with laptop-only deployer vars vs public NEXT_PUBLIC_* vars.
-5. Align hardhat CHAIN_ID defaults with the real BlockDAG chain we target (e.g. 1404 mainnet).
+5. Align hardhat `CHAIN_ID` with mainnet **1404** and default `RPC_URL` to a
+   community endpoint (e.g. `https://rpc.blockdag.engineering/`).
+   **Never** default to or document `https://rpc.bdagscan.com` — diverged fork.
 
 Open a PR. Do not put private keys in the repo or in Docker images.
 ```
@@ -254,10 +272,11 @@ Open a PR. Do not put private keys in the repo or in Docker images.
 
 | Symptom | Likely cause |
 |---------|----------------|
-| Hardhat: invalid JSON-RPC / HTML body | RPC Cloudflare or wrong URL; try another network path or RPC |
-| `DEPLOYER_PRIVATE_KEY` missing / bad | Local `.env` not loaded; key must be hex with or without `0x` per Hardhat/ethers expectation |
-| Deploy tx underpriced / stuck | Raise gas; check community RPC gas guidance; wait or replace tx from the same nonce |
-| Web UI talks to wrong chain | Stale web image; `NEXT_PUBLIC_CHAIN_ID` / RPC not rebuilt |
+| Hardhat: invalid JSON-RPC / HTML body | Cloudflare or bad URL; try another **community** RPC from the table |
+| `DEPLOYER_PRIVATE_KEY` missing / bad | Local `.env` not loaded; key must be hex (with or without `0x`) |
+| Deployed but users don’t see contracts | You used `rpc.bdagscan.com` (wrong fork) or mixed community + bdagscan in wallet vs app |
+| Deploy tx underpriced / stuck | Raise gas; try another community RPC; wait or replace nonce |
+| Web UI talks to wrong chain | Stale web image; `NEXT_PUBLIC_CHAIN_ID` / RPC not rebuilt; wallet still on bdagscan RPC |
 | “Safe contracts not found” | `blockdag.json` not in the image or still placeholders `0x000…` |
 | Vote calls revert | Wrong `VOTE_TOKEN` / treasury, or quorum/token decimals mismatch |
 | Accidental key leak | Rotate that deployer immediately; treat funded key as burned if it was in chat logs or git history |
@@ -271,3 +290,4 @@ Open a PR. Do not put private keys in the repo or in Docker images.
 - Bake `DEPLOYER_PRIVATE_KEY` into Docker build-args or GHCR images
 - Edit Safe contract source to “make BlockDAG work”
 - Point mainnet UI at testnet addresses (or the reverse)
+- Use **`rpc.bdagscan.com`** / bdagscan MetaMask RPC for deploys or the app (wrong fork)
