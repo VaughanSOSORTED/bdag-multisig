@@ -43,3 +43,9 @@ and execute it. This is the Snapshot + Safe pattern, fully onchain.
 - Chain ID is inside every EIP-712 domain (anti-replay) — don't strip it.
 - Show owners exactly what they sign. No blind signing.
 - No private keys on the server. Only browser wallets sign.
+
+## Docs
+
+- [`docs/digitalocean-deploy.md`](docs/digitalocean-deploy.md) — droplet deploy pattern (GHCR, Compose, nginx/TLS), AI prompts, troubleshooting
+- [`docs/sqlite-vs-postgres.md`](docs/sqlite-vs-postgres.md) — why SQLite for v1 and how to migrate the API off Postgres
+- [`docs/contract-deploy.md`](docs/contract-deploy.md) — deploy Safe + BdagVote via community RPC, then wire addresses into Docker
