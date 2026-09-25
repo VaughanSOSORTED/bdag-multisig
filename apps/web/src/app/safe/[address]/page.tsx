@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import { formatEther } from "viem";
 import { api, type PendingTx } from "@/lib/api";
 import { publicClient, erc20Abi } from "@/lib/voting";
-import addresses from "../../../../../contracts/deployments/blockdag.json";
+import addresses from "../../../../../../contracts/deployments/blockdag.json";
 import TxCard from "@/components/TxCard";
 import SignerList from "@/components/SignerList";
 import ThresholdBadge from "@/components/ThresholdBadge";
@@ -20,7 +20,7 @@ export default function SafePage({ params }: { params: Promise<{ address: string
     const client = publicClient();
     client.getBalance({ address: address as `0x${string}` }).then(setBalance);
 
-    const token = addresses.VoteToken as `0x${string}`;
+    const token = (addresses as typeof addresses & { VoteToken?: string }).VoteToken as `0x${string}` | undefined;
     if (token && !token.startsWith("0x0000")) {
       client.readContract({ address: token, abi: erc20Abi, functionName: "symbol" }).then(setTokenSymbol);
       client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`] }).then(setTokenBalance);
@@ -42,7 +42,7 @@ export default function SafePage({ params }: { params: Promise<{ address: string
         <Stat label="BDAG balance" value={balance !== undefined ? `${Number(formatEther(balance)).toFixed(2)} BDAG` : "…"} />
         <Stat label={tokenSymbol ? `${tokenSymbol} held` : "Token held"} value={tokenBalance !== undefined ? formatEther(tokenBalance) : "…"} />
         <Stat label="Pending txs" value={String(pending.length)} />
-        <Stat label="Network" value="BlockDAG Testnet" />
+        <Stat label="Network" value="BlockDAG Mainnet · Chain 1404" />
       </div>
 
       <h2 className="mt-10 text-lg font-medium">Pending transactions</h2>

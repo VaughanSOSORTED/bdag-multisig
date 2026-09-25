@@ -1,0 +1,10 @@
+{
+  "chainId": 1404,
+  "deployedAt": "2026-09-25T17:35:33.955Z",
+  "source": "@safe-global/safe-smart-account packaged artifacts",
+  "SafeL2": "0x610F164ACc652e63e9eD0d803900b59C2B62188A",
+  "SafeProxyFactory": "0x89e2e8d8Ea61447fAeae655Be131101C55d1804B",
+  "MultiSend": "0xD087e1DAcF6Ee4f1C688a55ea28A042f982424Ab",
+  "MultiSendCallOnly": "0x5f189685D4D3323A3c36F36BaEE06A4E7323BA16",
+  "CompatibilityFallbackHandler": "0x4A29847142D83151923875dda42A5A18Eca044D6"
+}

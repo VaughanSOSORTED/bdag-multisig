@@ -19,10 +19,15 @@ export const erc20Abi = parseAbi([
   "function symbol() view returns (string)",
 ]);
 
-export const voteContract = {
-  address: addresses.BdagVote as `0x${string}`,
-  abi: bdagVoteAbi,
-};
+const bdagVoteAddress =
+  (addresses as typeof addresses & { BdagVote?: string }).BdagVote;
+
+export const voteContract = bdagVoteAddress
+  ? {
+      address: bdagVoteAddress as `0x${string}`,
+      abi: bdagVoteAbi,
+    }
+  : undefined;
 
 export function publicClient() {
   return createPublicClient({ chain: blockdag, transport: http() });

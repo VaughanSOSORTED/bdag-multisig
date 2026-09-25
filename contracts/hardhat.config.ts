@@ -1,6 +1,7 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import * as dotenv from "dotenv";
+
 dotenv.config();
 
 const config: HardhatUserConfig = {
@@ -10,10 +11,13 @@ const config: HardhatUserConfig = {
   },
   networks: {
     blockdag: {
-      url: process.env.RPC_URL!,
+      url: process.env.RPC_URL ?? "http://127.0.0.1:8545",
       chainId: Number(process.env.CHAIN_ID ?? 991),
-      accounts: [process.env.DEPLOYER_PRIVATE_KEY!],
+      accounts: process.env.DEPLOYER_PRIVATE_KEY
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
     },
   },
 };
+
 export default config;

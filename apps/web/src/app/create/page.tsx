@@ -10,7 +10,7 @@ export default function CreatePage() {
   const [busy, setBusy] = useState(false);
   const [safeAddress, setSafeAddress] = useState<string>();
 
-  const valid = owners.filter(isAddress);
+  const valid = owners.filter((owner) => isAddress(owner));
 
   async function deploy() {
     if (valid.length === 0 || threshold < 1 || threshold > valid.length) return;

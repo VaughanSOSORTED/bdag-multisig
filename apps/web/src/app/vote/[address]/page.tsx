@@ -5,7 +5,7 @@
 import { use, useEffect, useState } from "react";
 import { formatEther, parseUnits } from "viem";
 import { publicClient, walletClient, voteContract, erc20Abi } from "@/lib/voting";
-import addresses from "../../../../../contracts/deployments/blockdag.json";
+import addresses from "../../../../../../contracts/deployments/blockdag.json";
 
 interface ProposalView {
   id: number; title: string; end: bigint;
@@ -19,13 +19,23 @@ export default function VotePage({ params }: { params: Promise<{ address: string
   const [myWeight, setMyWeight] = useState<bigint>();
 
   async function load() {
+    const token = (addresses as typeof addresses & { VoteToken?: string }).VoteToken;
+
+    if (!token || !voteContract) {
+      return;
+    }
+
     const client = publicClient();
     const nextId = Number(await client.readContract({ ...voteContract, functionName: "nextId" }));
     setQuorum(await client.readContract({ ...voteContract, functionName: "quorum" }));
 
     const [acct] = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
-    const token = addresses.VoteToken as `0x${string}`;
-    setMyWeight(await client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [acct] }));
+    setMyWeight(await client.readContract({
+      address: token as `0x${string}`,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [acct],
+    }));
 
     const out: ProposalView[] = [];
     for (let id = 1; id < nextId; id++) {
@@ -38,6 +48,10 @@ export default function VotePage({ params }: { params: Promise<{ address: string
   useEffect(() => { load().catch(console.error); }, [address]);
 
   async function vote(id: number, support: boolean) {
+    if (!voteContract) {
+      throw new Error("Voting contract is not configured");
+    }
+
     const wc = await walletClient();
     const [acct] = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
     const hash = await wc.writeContract({
