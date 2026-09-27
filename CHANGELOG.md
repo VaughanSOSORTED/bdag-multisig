@@ -7,7 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/) once release
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-27
+
 ### Added
+
+- Prominent beta testing warning across the Multisig application, advising users to avoid large amounts and verify transaction details.
 
 - Safe dashboard tabs: **Fund**, **Propose**, **History**, **Gov**, **Settings** with `?tab=` deep links.
 - Fund flow: deposit-from-wallet main path; sidebar for balances, refresh, copy/share address, and continue to Propose.
@@ -87,6 +91,7 @@ Live application: https://multisig.bdagsosorted.co.uk
 
 ---
 
-[Unreleased]: https://github.com/VaughanSOSORTED/bdag-multisig/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/VaughanSOSORTED/bdag-multisig/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/VaughanSOSORTED/bdag-multisig/releases/tag/v1.1.0
 [1.0.0]: https://github.com/VaughanSOSORTED/bdag-multisig/releases/tag/v1.0.0
 [0.1.0]: https://github.com/VaughanSOSORTED/bdag-multisig/releases/tag/v0.1.0
