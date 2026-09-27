@@ -496,6 +496,8 @@ export default function CreatePage() {
               <h2>Authorised Wallets</h2>
               <div className="muted">
                 Add each wallet that will have authority over the multisig.
+                You can create multiple Safes with the same owners — each
+                deployment uses a unique salt.
               </div>
 
               {owners.map((owner, index) => (

@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { db } from "../server";
+import { db } from "../db";
 import {
   verifyOwnerSignature,
   getSafeNonce,
