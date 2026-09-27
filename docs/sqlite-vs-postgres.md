@@ -1,8 +1,13 @@
 # SQLite vs Postgres (for this API)
 
+> **Production note:** The live BDAG Multisig application uses **PostgreSQL on Google Cloud SQL**.
+> The SQLite option documented below is retained for the alternative **single-server DigitalOcean deployment** described in `digitalocean-deploy.md`.
+> Do not migrate the production Google Cloud deployment to SQLite.
+
+
 The signature API (`apps/api`) only stores **pending Safe proposals and owner signatures**. It is not a custody wallet, not a chain indexer, and not a high-traffic OLTP system.
 
-**Recommendation for a single DigitalOcean droplet: use SQLite.**  
+**Recommendation for a single DigitalOcean droplet: use SQLite.**
 Postgres is fine later if you outgrow one box or need multiple API replicas.
 
 Related: [digitalocean-deploy.md](./digitalocean-deploy.md).
