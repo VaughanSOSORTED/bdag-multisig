@@ -1,12 +1,43 @@
 import Fastify from "fastify";
+import cors from "@fastify/cors";
 import { Pool } from "pg";
-import { randomUUID } from "node:crypto";
-import { transactionsRoute, signaturesRoute } from "./routes";
+import { transactionsRoute } from "./routes/transactions";
+import { signaturesRoute } from "./routes/signatures";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const connectionName = process.env.INSTANCE_CONNECTION_NAME;
+
+if (!connectionName) {
+  throw new Error("INSTANCE_CONNECTION_NAME is not configured");
+}
+
+const pool = new Pool({
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  host: `/cloudsql/${connectionName}`,
+});
 export const db = pool;
 
 const app = Fastify({ logger: true });
+
+const allowedOrigins = new Set([
+  "https://bdag-multisig-web-754643864450.europe-west4.run.app",
+  "https://bdag-multisig.web.app",
+  "https://bdag-multisig.firebaseapp.com",
+  "https://multisig.bdagsosorted.co.uk",
+]);
+
+app.register(cors, {
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      cb(null, true);
+      return;
+    }
+
+    cb(new Error("Origin not allowed"), false);
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+});
 
 app.register(transactionsRoute);
 app.register(signaturesRoute);

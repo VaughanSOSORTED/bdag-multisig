@@ -31,3 +31,12 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+apps/api/dist/
+apps/web/tsconfig.tsbuildinfo
+
+# Firebase local state
+.firebase/
+
+# Firebase Hosting placeholder
+firebase-public/

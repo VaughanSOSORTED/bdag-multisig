@@ -7,6 +7,13 @@ CREATE TABLE IF NOT EXISTS transactions (
   value_wei     TEXT NOT NULL,
   calldata      TEXT NOT NULL,
   safe_tx_hash  TEXT NOT NULL UNIQUE,
+  operation     INTEGER NOT NULL DEFAULT 0,
+  safe_tx_gas   TEXT NOT NULL DEFAULT '0',
+  base_gas      TEXT NOT NULL DEFAULT '0',
+  gas_price     TEXT NOT NULL DEFAULT '0',
+  gas_token     TEXT NOT NULL DEFAULT '0x0000000000000000000000000000000000000000',
+  refund_receiver TEXT NOT NULL DEFAULT '0x0000000000000000000000000000000000000000',
+  safe_nonce    BIGINT NOT NULL,
   description   TEXT,
   status        TEXT NOT NULL DEFAULT 'pending', -- pending | executed
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()

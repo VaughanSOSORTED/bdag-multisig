@@ -1,10 +1,20 @@
 {
   "hosting": {
-    "public": "apps/web/out",
+    "site": "bdag-multisig",
+    "public": "firebase-public",
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "bdag-multisig-web",
+          "region": "europe-west4"
+        }
+      }
     ]
   }
 }
