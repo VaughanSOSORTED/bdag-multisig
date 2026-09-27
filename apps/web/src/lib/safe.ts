@@ -54,6 +54,15 @@ export async function createSafe(owners: string[], threshold: number) {
     throw new Error("Invalid Safe threshold");
   }
 
+  // CREATE2 address is derived from owners + threshold + saltNonce.
+  // Without a unique salt, the same owner set always predicts the same
+  // Safe and createSafeDeploymentTransaction throws "Safe already deployed".
+  // Must be a decimal integer string — Protocol Kit passes this to BigInt().
+  const saltNonce = (
+    BigInt(Date.now()) * 1_000_000n +
+    BigInt(Math.floor(Math.random() * 1_000_000))
+  ).toString();
+
   const protocolKit = await Safe.init({
     provider: process.env.NEXT_PUBLIC_RPC_URL!,
     signer: sender,
@@ -62,12 +71,22 @@ export async function createSafe(owners: string[], threshold: number) {
         owners,
         threshold,
       },
+      safeDeploymentConfig: {
+        saltNonce,
+      },
     },
     isL1SafeSingleton: false,
     contractNetworks,
   });
 
   const safeAddress = await protocolKit.getAddress();
+
+  if (await protocolKit.isSafeDeployed()) {
+    throw new Error(
+      `Predicted Safe ${safeAddress} is already deployed. Try again to use a new salt.`
+    );
+  }
+
   const deploymentTx = await protocolKit.createSafeDeploymentTransaction();
 
   const txHash = await (window as any).ethereum.request({

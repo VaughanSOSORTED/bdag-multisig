@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { randomUUID } from "node:crypto";
 import { decodeEventLog, getAddress } from "viem";
-import { db } from "../server";
+import { db } from "../db";
 import {
   verifySafeTransaction,
   verifyOwnerSignature,

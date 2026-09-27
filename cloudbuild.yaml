@@ -1,5 +1,36 @@
 steps:
+  - name: 'node:22-bookworm'
+    id: 'test-web'
+    dir: 'apps/web'
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        npm ci
+        npm run test:coverage
+
+  - name: 'node:22-bookworm'
+    id: 'test-api'
+    dir: 'apps/api'
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        npm ci
+        npm run test:coverage
+
+  - name: 'node:22-bookworm'
+    id: 'test-contracts'
+    dir: 'contracts'
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        npm ci
+        npm test
+
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-web-image'
     args:
       - 'build'
       - '--build-arg'

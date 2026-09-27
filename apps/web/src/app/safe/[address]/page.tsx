@@ -1,14 +1,41 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatEther } from "viem";
 import { api, type PendingTx } from "@/lib/api";
-import { publicClient, erc20Abi } from "@/lib/voting";
-import addresses from "../../../../../../contracts/deployments/blockdag.json";
+import { publicClient } from "@/lib/voting";
+import {
+  fetchSafeOnChainActivity,
+  formatActivityAmount,
+  type OnChainSafeActivity,
+} from "@/lib/safeActivity";
 import TxCard from "@/components/TxCard";
 import NewTransaction from "@/components/NewTransaction";
-import SignerList from "@/components/SignerList";
+import FundSharePanel from "@/components/FundSharePanel";
+import SafeSettings from "@/components/SafeSettings";
+import SafeHistory, { type HistoryRow } from "@/components/SafeHistory";
+import SafeGovernance from "@/components/SafeGovernance";
 import SiteFooter from "@/components/SiteFooter";
+
+type DashTab = "fund" | "propose" | "history" | "governance" | "settings";
+
+type AuditRow = HistoryRow & {
+  sortKey: number;
+};
+
+function parseTab(value: string | null): DashTab {
+  if (
+    value === "propose" ||
+    value === "history" ||
+    value === "governance" ||
+    value === "settings"
+  ) {
+    return value;
+  }
+  // Legacy ?tab=treasury → Propose (queue + payments)
+  if (value === "treasury") return "propose";
+  return "fund";
+}
 
 export default function SafePage({
   params,
@@ -20,13 +47,47 @@ export default function SafePage({
   const [balance, setBalance] = useState<bigint>();
   const [pending, setPending] = useState<PendingTx[]>([]);
   const [history, setHistory] = useState<PendingTx[]>([]);
-  const [tokenSymbol, setTokenSymbol] = useState<string>();
-  const [tokenBalance, setTokenBalance] = useState<bigint>();
+  const [onChainActivity, setOnChainActivity] = useState<
+    OnChainSafeActivity[]
+  >([]);
+  const [activityError, setActivityError] = useState<string>();
   const [apiOnline, setApiOnline] = useState(true);
   const [access, setAccess] = useState<
     "disconnected" | "checking" | "authorized" | "denied" | "wrong-network"
   >("disconnected");
   const [connectedAccount, setConnectedAccount] = useState<string>();
+  const [tab, setTab] = useState<DashTab>("fund");
+  const [proposeMode, setProposeMode] = useState<"queue" | "new">("queue");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setTab(parseTab(new URLSearchParams(window.location.search).get("tab")));
+  }, []);
+
+  function selectTab(next: DashTab) {
+    setTab(next);
+    if (next === "propose") {
+      setProposeMode("queue");
+    }
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (next === "fund") {
+      url.searchParams.delete("tab");
+    } else {
+      url.searchParams.set("tab", next);
+    }
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  }
+
+  function refreshPending() {
+    api
+      .pending(address)
+      .then((items) => {
+        setPending(items);
+        setApiOnline(true);
+      })
+      .catch(() => setApiOnline(false));
+  }
 
   const safeOwnerAbi = [
     {
@@ -38,14 +99,22 @@ export default function SafePage({
     },
   ] as const;
 
-  async function verifyOwner(account: string) {
-    setAccess("checking");
+  async function verifyOwner(
+    account: string,
+    options?: { quiet?: boolean }
+  ) {
+    // Keep the dashboard mounted during soft re-checks so MetaMask
+    // accountsChanged / chainChanged events don't look like a disconnect.
+    if (!options?.quiet) {
+      setAccess("checking");
+    }
 
     try {
       const ethereum = (window as any).ethereum;
 
       if (!ethereum) {
         setAccess("disconnected");
+        setConnectedAccount(undefined);
         return;
       }
 
@@ -72,7 +141,10 @@ export default function SafePage({
       setAccess(isOwner ? "authorized" : "denied");
     } catch (error) {
       console.error("Owner verification failed:", error);
-      setAccess("denied");
+      // Don't kick an already-authorized session to denied on a transient RPC blip.
+      if (!options?.quiet) {
+        setAccess("denied");
+      }
     }
   }
 
@@ -103,33 +175,76 @@ export default function SafePage({
     }
   }
 
+  async function disconnectWallet() {
+    setConnectedAccount(undefined);
+    setAccess("disconnected");
+    setBalance(undefined);
+    setPending([]);
+    setHistory([]);
+
+    try {
+      const ethereum = (window as any).ethereum;
+      await ethereum?.request?.({
+        method: "wallet_revokePermissions",
+        params: [{ eth_accounts: {} }],
+      });
+    } catch {
+      // Older wallets may not support revoke; local disconnect still works.
+    }
+  }
+
   useEffect(() => {
     const ethereum = (window as any).ethereum;
     if (!ethereum) return;
 
-    const handleAccountsChanged = (accounts: string[]) => {
-      setBalance(undefined);
-      setPending([]);
-      setHistory([]);
-      setTokenBalance(undefined);
+    let cancelled = false;
 
+    // Restore an existing MetaMask site permission without a connect click.
+    (async () => {
+      try {
+        const accounts = (await ethereum.request({
+          method: "eth_accounts",
+        })) as string[];
+        if (cancelled || !accounts.length) return;
+        await verifyOwner(accounts[0], { quiet: true });
+      } catch {
+        // Stay on connect screen if the wallet is unavailable.
+      }
+    })();
+
+    const handleAccountsChanged = (accounts: string[]) => {
       if (!accounts.length) {
         setConnectedAccount(undefined);
         setAccess("disconnected");
+        setBalance(undefined);
+        setPending([]);
+        setHistory([]);
         return;
       }
 
-      verifyOwner(accounts[0]);
+      // Account switch: refresh owner check without blanking the page.
+      verifyOwner(accounts[0], { quiet: true });
     };
 
     const handleChainChanged = () => {
-      window.location.reload();
+      ethereum
+        .request({ method: "eth_accounts" })
+        .then((accounts: string[]) => {
+          if (!accounts.length) {
+            setAccess("disconnected");
+            setConnectedAccount(undefined);
+            return;
+          }
+          return verifyOwner(accounts[0], { quiet: true });
+        })
+        .catch(() => {});
     };
 
     ethereum.on?.("accountsChanged", handleAccountsChanged);
     ethereum.on?.("chainChanged", handleChainChanged);
 
     return () => {
+      cancelled = true;
       ethereum.removeListener?.("accountsChanged", handleAccountsChanged);
       ethereum.removeListener?.("chainChanged", handleChainChanged);
     };
@@ -143,31 +258,6 @@ export default function SafePage({
       .getBalance({ address: address as `0x${string}` })
       .then(setBalance)
       .catch(() => {});
-
-    const token = (
-      addresses as typeof addresses & { VoteToken?: string }
-    ).VoteToken as `0x${string}` | undefined;
-
-    if (token && !token.startsWith("0x0000")) {
-      client
-        .readContract({
-          address: token,
-          abi: erc20Abi,
-          functionName: "symbol",
-        })
-        .then(setTokenSymbol)
-        .catch(() => {});
-
-      client
-        .readContract({
-          address: token,
-          abi: erc20Abi,
-          functionName: "balanceOf",
-          args: [address as `0x${string}`],
-        })
-        .then(setTokenBalance)
-        .catch(() => {});
-    }
 
     api
       .pending(address)
@@ -194,11 +284,152 @@ export default function SafePage({
       .catch((error) => {
         console.error("Transaction history failed:", error);
       });
+
+    setActivityError(undefined);
+    fetchSafeOnChainActivity(address)
+      .then((items) => {
+        setOnChainActivity(items);
+      })
+      .catch((error) => {
+        console.error("On-chain Safe activity failed:", error);
+        const raw =
+          error instanceof Error
+            ? error.message
+            : "Unable to load on-chain Safe activity";
+        setActivityError(
+          /rate limit|exceeds defined limit|429/i.test(raw)
+            ? "The BlockDAG RPC rate-limited history loading. Wait a moment and refresh the page."
+            : raw
+        );
+      });
   }, [address, access]);
 
   function shortAddress(value: string) {
     return `${value.slice(0, 8)}…${value.slice(-6)}`;
   }
+
+  const auditRows = useMemo(() => {
+    const rows: AuditRow[] = [];
+    const matchedSafeTxHashes = new Set<string>();
+
+    for (const item of onChainActivity) {
+      if (item.safeTxHash) {
+        matchedSafeTxHashes.add(item.safeTxHash.toLowerCase());
+      }
+
+      if (item.kind === "received") {
+        rows.push({
+          id: item.id,
+          title: item.title,
+          meta: item.transactionHash,
+          amount: formatActivityAmount(item.amountWei),
+          partyLabel: "From",
+          party: item.counterparty
+            ? shortAddress(item.counterparty)
+            : "—",
+          detailLabel: "Type",
+          detail: "On-chain deposit",
+          status: "received",
+          statusClass: "received",
+          when: item.timestamp
+            ? new Date(item.timestamp * 1000).toLocaleDateString("en-GB")
+            : `Block ${item.blockNumber.toString()}`,
+          sortKey: item.timestamp
+            ? item.timestamp * 1000
+            : Number(item.blockNumber),
+        });
+        continue;
+      }
+
+      if (item.kind === "setup") {
+        rows.push({
+          id: item.id,
+          title: item.title,
+          meta: item.transactionHash,
+          amount: "—",
+          partyLabel: "Safe",
+          party: shortAddress(address),
+          detailLabel: "Type",
+          detail: "Deployment",
+          status: "setup",
+          statusClass: "setup",
+          when: item.timestamp
+            ? new Date(item.timestamp * 1000).toLocaleDateString("en-GB")
+            : `Block ${item.blockNumber.toString()}`,
+          sortKey: item.timestamp
+            ? item.timestamp * 1000
+            : Number(item.blockNumber),
+        });
+        continue;
+      }
+
+      const matchedProposal = history.find(
+        (tx) =>
+          tx.safe_tx_hash &&
+          item.safeTxHash &&
+          tx.safe_tx_hash.toLowerCase() === item.safeTxHash.toLowerCase()
+      );
+
+      rows.push({
+        id: item.id,
+        title:
+          matchedProposal?.description ||
+          item.title,
+        meta: item.transactionHash,
+        amount: formatActivityAmount(item.amountWei),
+        partyLabel: "To",
+        party: item.counterparty
+          ? shortAddress(item.counterparty)
+          : "—",
+        detailLabel: "Safe tx",
+        detail: item.safeTxHash
+          ? shortAddress(item.safeTxHash)
+          : "—",
+        status: "executed",
+        statusClass: "executed",
+        when: item.timestamp
+          ? new Date(item.timestamp * 1000).toLocaleDateString("en-GB")
+          : `Block ${item.blockNumber.toString()}`,
+        sortKey: item.timestamp
+          ? item.timestamp * 1000
+          : Number(item.blockNumber),
+      });
+    }
+
+    for (const tx of history) {
+      const hash = tx.safe_tx_hash?.toLowerCase();
+      if (hash && matchedSafeTxHashes.has(hash)) {
+        continue;
+      }
+
+      // Pending proposals already appear in the Approval Queue.
+      if (String(tx.status).toLowerCase() === "pending") {
+        continue;
+      }
+
+      rows.push({
+        id: `api-${tx.id}`,
+        title: tx.description || "Treasury proposal",
+        meta: tx.safe_tx_hash || tx.id,
+        amount: `${Number(formatEther(BigInt(tx.value))).toFixed(6)} BDAG`,
+        partyLabel: "To",
+        party: shortAddress(tx.to),
+        detailLabel: "Nonce",
+        detail: `#${tx.nonce}`,
+        status: String(tx.status),
+        statusClass: String(tx.status).toLowerCase(),
+        when: tx.created_at
+          ? new Date(tx.created_at).toLocaleDateString("en-GB")
+          : "—",
+        sortKey: tx.created_at
+          ? new Date(tx.created_at).getTime()
+          : 0,
+      });
+    }
+
+    rows.sort((a, b) => b.sortKey - a.sortKey);
+    return rows;
+  }, [address, history, onChainActivity]);
 
   return (
     <>
@@ -265,8 +496,16 @@ export default function SafePage({
 
         .treasury-logo {
           display: block;
-          width: min(390px, 55vw);
+          width: min(180px, 42vw);
           height: auto;
+        }
+
+        .header-actions {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          flex-wrap: wrap;
+          gap: 10px;
         }
 
         .network-pill {
@@ -290,6 +529,55 @@ export default function SafePage({
           border-radius: 50%;
           background: #f31332;
           box-shadow: 0 0 12px rgba(243, 19, 50, 0.35);
+        }
+
+        .wallet-chip {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          min-height: 40px;
+          padding: 6px 8px 6px 14px;
+          border: 1px solid #d2d2ce;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.82);
+        }
+
+        .wallet-chip-addr {
+          color: #555;
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+        }
+
+        .disconnect-button {
+          min-height: 28px;
+          padding: 6px 12px;
+          border: 0;
+          border-radius: 999px;
+          background: #f0f0ec;
+          color: #666;
+          cursor: pointer;
+          font-size: 10px;
+          font-weight: 800;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+
+        .disconnect-button:hover {
+          background: #e6e6e2;
+          color: #333;
+        }
+
+        .disconnect-button.ghost {
+          margin-top: 4px;
+          min-height: 44px;
+          padding: 11px 18px;
+          border: 1px solid #d8d8d4;
+          border-radius: 12px;
+          background: #fff;
+          color: #666;
+          font-size: 11px;
         }
 
         .access-gate {
@@ -374,10 +662,6 @@ export default function SafePage({
         }
 
         .treasury-hero {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-end;
-          gap: 30px;
           padding: 44px 0 27px;
         }
 
@@ -390,11 +674,11 @@ export default function SafePage({
         }
 
         .treasury-hero h1 {
-          margin: 8px 0 8px;
+          margin: 6px 0 6px;
           color: #626262;
-          font-size: clamp(34px, 5vw, 54px);
-          line-height: 1;
-          letter-spacing: -0.04em;
+          font-size: clamp(22px, 3.2vw, 30px);
+          line-height: 1.1;
+          letter-spacing: -0.03em;
         }
 
         .safe-address {
@@ -409,7 +693,7 @@ export default function SafePage({
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(3, 1fr);
           gap: 14px;
           margin-bottom: 24px;
         }
@@ -450,9 +734,14 @@ export default function SafePage({
 
         .dashboard-layout {
           display: grid;
-          grid-template-columns: minmax(0, 1.6fr) minmax(290px, 0.8fr);
+          grid-template-columns: minmax(0, 1fr);
           gap: 20px;
           align-items: start;
+          margin-top: 16px;
+        }
+
+        .dashboard-layout.with-side {
+          grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
         }
 
         .panel {
@@ -469,6 +758,7 @@ export default function SafePage({
         .panel-head {
           display: flex;
           justify-content: space-between;
+          align-items: flex-start;
           gap: 20px;
           padding: 23px 24px 20px;
           border-bottom: 1px solid #e0e0dc;
@@ -487,6 +777,14 @@ export default function SafePage({
           line-height: 1.6;
         }
 
+        .panel-head-actions {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 10px;
+          flex: 0 0 auto;
+        }
+
         .pending-count {
           display: grid;
           place-items: center;
@@ -498,6 +796,50 @@ export default function SafePage({
           color: white;
           font-size: 14px;
           font-weight: 800;
+        }
+
+        .new-proposal-btn {
+          min-height: 44px;
+          padding: 11px 16px;
+          border: 0;
+          border-radius: 10px;
+          background: #f31332;
+          color: #fff;
+          cursor: pointer;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.04em;
+          white-space: nowrap;
+        }
+
+        .back-to-queue {
+          display: inline-flex;
+          align-items: center;
+          min-height: 36px;
+          margin: 0;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: #777;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .back-to-queue:hover {
+          color: #f31332;
+        }
+
+        .propose-new-wrap {
+          border-bottom: 1px solid #e0e0dc;
+        }
+
+        .propose-new-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 16px 24px 0;
         }
 
         .pending-content {
@@ -547,152 +889,63 @@ export default function SafePage({
           line-height: 1.5;
         }
 
-        .side-stack {
+        .dash-tabs {
           display: grid;
-          gap: 20px;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 4px;
+          margin: 14px 0 0;
+          padding: 5px;
+          border: 1px solid #d4d4d0;
+          border-radius: 14px;
+          background: #ecece8;
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
         }
 
-        .info-panel {
-          padding: 23px;
-        }
-
-        .info-panel h3 {
-          margin: 7px 0 17px;
-          color: #555;
-          font-size: 17px;
-        }
-
-        .info-row {
-          display: flex;
-          justify-content: space-between;
-          gap: 15px;
-          padding: 12px 0;
-          border-top: 1px solid #e3e3df;
+        .dash-tab {
+          position: relative;
+          min-height: 44px;
+          padding: 12px 8px;
+          border: 1px solid transparent;
+          border-radius: 10px;
+          background: transparent;
+          color: #6f6f6b;
+          cursor: pointer;
           font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
         }
 
-        .info-row span:first-child {
-          color: #8c8c88;
+        .dash-tab:hover {
+          color: #333;
+          background: rgba(255, 255, 255, 0.45);
         }
 
-        .info-row strong {
-          color: #555;
-          text-align: right;
+        .dash-tab.active {
+          border-color: #d8d8d4;
+          background: #fff;
+          color: #1a1a1a;
+          box-shadow: 0 1px 3px rgba(40, 40, 40, 0.08);
         }
 
-        .red-text {
-          color: #f31332 !important;
+        .dash-tab.active::after {
+          content: "";
+          position: absolute;
+          left: 18%;
+          right: 18%;
+          bottom: 6px;
+          height: 2px;
+          border-radius: 2px;
+          background: #f31332;
         }
 
-        .security-panel {
-          padding: 22px;
-          border-color: rgba(243, 19, 50, 0.28);
-          background: linear-gradient(
-            145deg,
-            rgba(243, 19, 50, 0.055),
-            rgba(255, 255, 255, 0.92)
-          );
-        }
-
-        .security-symbol {
-          color: #f31332;
-          font-size: 19px;
-        }
-
-        .security-panel strong {
-          display: block;
-          margin: 9px 0 6px;
-          color: #555;
-          font-size: 13px;
-        }
-
-        .security-panel p {
-          margin: 0;
-          color: #888;
-          font-size: 11px;
-          line-height: 1.6;
-        }
-
-        .signers-wrap {
-          margin-top: 20px;
-        }
-
-        .history-panel {
-          margin-top: 20px;
+        .tab-panel {
+          margin-top: 16px;
           overflow: hidden;
         }
 
-        .history-content {
-          padding: 0 24px 10px;
-        }
-
-        .history-row {
-          display: grid;
-          grid-template-columns: minmax(190px, 1.5fr) minmax(120px, .8fr) minmax(150px, 1fr) 80px 90px 120px;
-          gap: 18px;
-          align-items: center;
-          padding: 18px 0;
-          border-bottom: 1px solid #e3e3df;
-        }
-
-        .history-row:last-child {
-          border-bottom: 0;
-        }
-
-        .history-title {
-          color: #555;
-          font-size: 12px;
-          font-weight: 800;
-        }
-
-        .history-meta {
-          margin-top: 5px;
-          color: #999;
-          font-family: monospace;
-          font-size: 9px;
-        }
-
-        .history-label {
-          display: none;
-          margin-bottom: 4px;
-          color: #999;
-          font-size: 8px;
-          font-weight: 800;
-          letter-spacing: .1em;
-          text-transform: uppercase;
-        }
-
-        .history-value {
-          color: #666;
-          font-size: 11px;
-          font-weight: 700;
-        }
-
-        .history-status {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 7px 10px;
-          border-radius: 999px;
-          font-size: 9px;
-          font-weight: 900;
-          letter-spacing: .08em;
-          text-transform: uppercase;
-        }
-
-        .history-status.executed {
-          background: rgba(35, 150, 80, .1);
-          color: #238f52;
-        }
-
-        .history-status.pending {
-          background: rgba(243, 19, 50, .08);
-          color: #f31332;
-        }
-
-        .history-status.stale {
-          background: rgba(110, 110, 110, .1);
-          color: #777;
+        .tab-panel-body {
+          padding: 22px 24px 24px;
         }
 
         .site-footer {
@@ -790,10 +1043,15 @@ export default function SafePage({
 
         @media (max-width: 900px) {
           .stats {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: 1fr 1fr;
           }
 
-          .dashboard-layout {
+          .stats .stat-card:last-child {
+            grid-column: 1 / -1;
+          }
+
+          .dashboard-layout,
+          .dashboard-layout.with-side {
             grid-template-columns: 1fr;
           }
         }
@@ -808,13 +1066,19 @@ export default function SafePage({
             flex-direction: column;
           }
 
-          .treasury-logo {
-            width: min(390px, 90vw);
+          .header-actions {
+            width: 100%;
+            justify-content: flex-start;
           }
 
-          .treasury-hero {
-            align-items: flex-start;
-            flex-direction: column;
+          .wallet-chip {
+            flex: 1;
+            min-width: 0;
+            justify-content: space-between;
+          }
+
+          .treasury-logo {
+            width: min(150px, 48vw);
           }
 
           .stats {
@@ -822,20 +1086,44 @@ export default function SafePage({
           }
 
           .panel-head {
-            align-items: flex-start;
+            align-items: stretch;
+            flex-direction: column;
           }
 
-          .history-row {
-            grid-template-columns: 1fr 1fr;
-            gap: 14px 20px;
+          .panel-head-actions {
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
           }
 
-          .history-row > div:first-child {
-            grid-column: 1 / -1;
+          .new-proposal-btn {
+            width: 100%;
           }
 
-          .history-label {
-            display: block;
+          .panel-head-actions .new-proposal-btn {
+            width: auto;
+          }
+
+          .dash-tabs {
+            padding: 4px;
+            gap: 3px;
+          }
+
+          .dash-tab {
+            padding: 12px 2px;
+            font-size: 10px;
+            letter-spacing: 0.03em;
+          }
+
+          .dash-tab.active::after {
+            left: 12%;
+            right: 12%;
+            bottom: 5px;
+          }
+
+          .tab-panel-body {
+            padding: 16px;
           }
         }
       `}</style>
@@ -851,9 +1139,26 @@ export default function SafePage({
               className="treasury-logo"
             />
 
-            <div className="network-pill">
-              <span className="network-dot" />
-              BLOCKDAG MAINNET · CHAIN 1404
+            <div className="header-actions">
+              <div className="network-pill">
+                <span className="network-dot" />
+                BLOCKDAG MAINNET · CHAIN 1404
+              </div>
+
+              {connectedAccount && (
+                <div className="wallet-chip">
+                  <span className="wallet-chip-addr">
+                    {shortAddress(connectedAccount)}
+                  </span>
+                  <button
+                    type="button"
+                    className="disconnect-button"
+                    onClick={disconnectWallet}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              )}
             </div>
           </header>
 
@@ -916,6 +1221,14 @@ export default function SafePage({
                         {shortAddress(connectedAccount)}
                       </div>
                     )}
+
+                    <button
+                      type="button"
+                      className="disconnect-button ghost"
+                      onClick={disconnectWallet}
+                    >
+                      Disconnect Wallet
+                    </button>
                   </>
                 )}
 
@@ -933,8 +1246,16 @@ export default function SafePage({
                       </div>
                     )}
 
+                    <button
+                      type="button"
+                      className="disconnect-button ghost"
+                      onClick={disconnectWallet}
+                    >
+                      Disconnect Wallet
+                    </button>
+
                     <p className="access-note">
-                      Select an authorised owner account in your wallet to
+                      Disconnect, then connect an authorised owner account to
                       continue.
                     </p>
                   </>
@@ -944,12 +1265,10 @@ export default function SafePage({
           ) : (
             <>
           <section className="treasury-hero">
-            <div>
-              <div className="kicker">Community Multisig</div>
-              <h1>Treasury Dashboard</h1>
-              <div className="safe-address">
-                SAFE · <strong>{shortAddress(address)}</strong>
-              </div>
+            <div className="kicker">Community Multisig</div>
+            <h1>Treasury Dashboard</h1>
+            <div className="safe-address">
+              SAFE · <strong>{shortAddress(address)}</strong>
             </div>
           </section>
 
@@ -972,16 +1291,6 @@ export default function SafePage({
             />
 
             <Stat
-              label={tokenSymbol ? `${tokenSymbol} Held` : "Governance Token"}
-              value={
-                tokenBalance !== undefined
-                  ? Number(formatEther(tokenBalance)).toFixed(2)
-                  : "—"
-              }
-              sub={tokenSymbol ?? "Not configured"}
-            />
-
-            <Stat
               label="Network"
               value="1404"
               sub="BlockDAG Mainnet"
@@ -989,181 +1298,195 @@ export default function SafePage({
             />
           </section>
 
-          <div className="dashboard-layout">
-            <section className="panel pending-panel">
-              <NewTransaction
+          <nav className="dash-tabs" aria-label="Safe dashboard sections">
+            {(
+              [
+                ["fund", "Fund"],
+                ["propose", "Propose"],
+                ["history", "History"],
+                ["governance", "Gov"],
+                ["settings", "Settings"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={tab === id ? "dash-tab active" : "dash-tab"}
+                onClick={() => selectTab(id)}
+              >
+                {label}
+                {id === "propose" && pending.length > 0
+                  ? ` (${pending.length})`
+                  : ""}
+                {id === "history" && auditRows.length > 0
+                  ? ` (${auditRows.length})`
+                  : ""}
+              </button>
+            ))}
+          </nav>
+
+          {tab === "fund" && (
+            <div className="dashboard-layout with-side">
+              <section className="panel pending-panel">
+                <NewTransaction
+                  mode="fund"
+                  safeAddress={address}
+                  onBalanceChange={(next) => {
+                    setBalance(next);
+                    fetchSafeOnChainActivity(address)
+                      .then(setOnChainActivity)
+                      .catch(() => {});
+                  }}
+                />
+              </section>
+
+              <FundSharePanel
                 safeAddress={address}
-                onCreated={() => {
-                  api
-                    .pending(address)
-                    .then((items) => {
-                      setPending(items);
-                      setApiOnline(true);
-                    })
-                    .catch(() => setApiOnline(false));
+                balance={balance}
+                onBalanceChange={(next) => {
+                  setBalance(next);
+                  fetchSafeOnChainActivity(address)
+                    .then(setOnChainActivity)
+                    .catch(() => {});
                 }}
+                onGoToPropose={() => selectTab("propose")}
               />
+            </div>
+          )}
 
-              <div className="panel-head">
-                <div>
-                  <div className="kicker">Approval Queue</div>
-                  <h2>Pending Transactions</h2>
-                  <p>
-                    Signatures are collected off-chain. The last signer
-                    executes and pays gas.
-                  </p>
-                </div>
-
-                <div className="pending-count">{pending.length}</div>
-              </div>
-
-              <div className="pending-content">
-                {pending.length === 0 ? (
-                  <div className="empty-state">
-                    <div className="empty-icon">✓</div>
-                    <strong>No transactions waiting</strong>
-                    <p>
-                      New treasury proposals requiring owner signatures will
-                      appear here.
-                    </p>
+          {tab === "propose" && (
+            <div className="dashboard-layout">
+              <section className="panel pending-panel">
+                {proposeMode === "new" ? (
+                  <div className="propose-new-wrap">
+                    <div className="propose-new-bar">
+                      <button
+                        type="button"
+                        className="back-to-queue"
+                        onClick={() => setProposeMode("queue")}
+                      >
+                        ← Back to queue
+                      </button>
+                    </div>
+                    <NewTransaction
+                      mode="propose"
+                      safeAddress={address}
+                      onBalanceChange={(next) => {
+                        setBalance(next);
+                        fetchSafeOnChainActivity(address)
+                          .then(setOnChainActivity)
+                          .catch(() => {});
+                      }}
+                      onGoToFund={() => selectTab("fund")}
+                      onCreated={() => {
+                        refreshPending();
+                        setProposeMode("queue");
+                        publicClient()
+                          .getBalance({ address: address as `0x${string}` })
+                          .then(setBalance)
+                          .catch(() => {});
+                        fetchSafeOnChainActivity(address)
+                          .then(setOnChainActivity)
+                          .catch(() => {});
+                      }}
+                    />
                   </div>
                 ) : (
-                  pending.map((tx) => <TxCard key={tx.id} tx={tx} />)
+                  <>
+                    <div className="panel-head">
+                      <div>
+                        <div className="kicker">Approval Queue</div>
+                        <h2>Pending Transactions</h2>
+                        <p>
+                          Signatures are collected off-chain. Payment proposals
+                          need Safe balance; configuration proposals only need
+                          signatures then execute.
+                        </p>
+                      </div>
+
+                      <div className="panel-head-actions">
+                        <div className="pending-count">{pending.length}</div>
+                        <button
+                          type="button"
+                          className="new-proposal-btn"
+                          onClick={() => setProposeMode("new")}
+                        >
+                          New Proposal
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pending-content">
+                      {pending.length === 0 ? (
+                        <div className="empty-state">
+                          <div className="empty-icon">✓</div>
+                          <strong>No transactions waiting</strong>
+                          <p>
+                            Payment and configuration proposals will appear
+                            here for signing and execution. Create one with
+                            New Proposal.
+                          </p>
+                          <button
+                            type="button"
+                            className="new-proposal-btn"
+                            style={{ marginTop: 16 }}
+                            onClick={() => setProposeMode("new")}
+                          >
+                            New Proposal
+                          </button>
+                        </div>
+                      ) : (
+                        pending.map((tx) => (
+                          <TxCard key={tx.id} tx={tx} safeBalance={balance} />
+                        ))
+                      )}
+                    </div>
+
+                    {!apiOnline && (
+                      <div className="api-warning">
+                        The signature service is currently unavailable. On-chain
+                        Safe funds are not affected, but pending proposals
+                        cannot be loaded until the API is available.
+                      </div>
+                    )}
+                  </>
                 )}
-              </div>
+              </section>
+            </div>
+          )}
 
-              {!apiOnline && (
-                <div className="api-warning">
-                  The signature service is currently unavailable. On-chain Safe
-                  funds are not affected, but pending proposals cannot be loaded
-                  until the API is available.
-                </div>
-              )}
+          {tab === "history" && (
+            <section className="panel tab-panel">
+              <div className="tab-panel-body">
+                <SafeHistory
+                  rows={auditRows}
+                  activityError={activityError}
+                />
+              </div>
             </section>
+          )}
 
-            <aside className="side-stack">
-              <div className="panel info-panel">
-                <div className="kicker">Safe Details</div>
-                <h3>Configuration</h3>
-
-                <div className="info-row">
-                  <span>Network</span>
-                  <strong>BlockDAG</strong>
-                </div>
-
-                <div className="info-row">
-                  <span>Chain ID</span>
-                  <strong className="red-text">1404</strong>
-                </div>
-
-                <div className="info-row">
-                  <span>Safe</span>
-                  <strong>{shortAddress(address)}</strong>
-                </div>
-
-                <div className="info-row">
-                  <span>Pending</span>
-                  <strong>{pending.length}</strong>
-                </div>
+          {tab === "governance" && (
+            <section className="panel tab-panel">
+              <div className="tab-panel-body">
+                <SafeGovernance />
               </div>
+            </section>
+          )}
 
-              <div className="panel security-panel">
-                <div className="security-symbol">◆</div>
-                <strong>Multisig Security</strong>
-                <p>
-                  Treasury transactions require the configured number of Safe
-                  owners to approve them before execution.
-                </p>
+          {tab === "settings" && (
+            <section className="panel tab-panel">
+              <div className="tab-panel-body">
+                <SafeSettings
+                  safeAddress={address}
+                  onProposed={() => {
+                    refreshPending();
+                    selectTab("propose");
+                  }}
+                />
               </div>
-            </aside>
-          </div>
-
-          <section className="panel history-panel">
-            <div className="panel-head">
-              <div>
-                <div className="kicker">Audit Trail</div>
-                <h2>Transaction History</h2>
-                <p>
-                  Treasury proposals recorded by the BDAG multisig service.
-                </p>
-              </div>
-
-              <div className="pending-count">{history.length}</div>
-            </div>
-
-            <div className="history-content">
-              {history.length === 0 ? (
-                <div className="empty-state">
-                  <div className="empty-icon">✓</div>
-                  <strong>No transaction history yet</strong>
-                  <p>
-                    Completed and previous treasury proposals will appear here.
-                  </p>
-                </div>
-              ) : (
-                history.map((tx) => (
-                  <div className="history-row" key={tx.id}>
-                    <div>
-                      <div className="history-title">
-                        {tx.description || "Treasury Transaction"}
-                      </div>
-                      <div className="history-meta">
-                        {tx.safe_tx_hash
-                          ? `${tx.safe_tx_hash.slice(0, 10)}…${tx.safe_tx_hash.slice(-8)}`
-                          : tx.id}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="history-label">Amount</span>
-                      <div className="history-value">
-                        {Number(formatEther(BigInt(tx.value))).toFixed(6)} BDAG
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="history-label">Recipient</span>
-                      <div className="history-value">
-                        {shortAddress(tx.to)}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="history-label">Nonce</span>
-                      <div className="history-value">#{tx.nonce}</div>
-                    </div>
-
-                    <div>
-                      <span className="history-label">Signatures</span>
-                      <div className="history-value">
-                        {tx.signatures?.length ?? 0}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="history-label">Status</span>
-                      <span
-                        className={`history-status ${String(
-                          tx.status
-                        ).toLowerCase()}`}
-                      >
-                        {tx.status}
-                      </span>
-                      <div className="history-meta">
-                        {tx.created_at
-                          ? new Date(tx.created_at).toLocaleDateString("en-GB")
-                          : "—"}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          <div className="signers-wrap">
-            <SignerList safeAddress={address} />
-          </div>
+            </section>
+          )}
 
             </>
           )}

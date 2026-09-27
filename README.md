@@ -253,9 +253,15 @@ This keeps governance signalling and treasury custody as separate security layer
 
 ## Documentation
 
-Additional technical and historical documentation is available in `docs/`.
+- [CHANGELOG.md](./CHANGELOG.md) — release history
+- [ROADMAP.md](./ROADMAP.md) — near-term and later priorities
+- [RELEASE.md](./RELEASE.md) — test-coverage baseline for this release cycle
+- [docs/TESTING.md](./docs/TESTING.md) — how to run tests and coverage floors
+- `docs/` — additional technical and historical documentation
 
-Some documents describe earlier development and deployment approaches and may not represent the current Google Cloud and Firebase production architecture.
+Cloud Build runs web, API, and contract tests before publishing the web image.
+
+Some documents under `docs/` describe earlier development and deployment approaches and may not represent the current Google Cloud and Firebase production architecture.
 
 This root `README.md` should be treated as the primary overview of the current production application.
 

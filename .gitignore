@@ -35,6 +35,10 @@ npm-debug.log*
 apps/api/dist/
 apps/web/tsconfig.tsbuildinfo
 
+# Test coverage
+coverage/
+**/coverage/
+
 # Firebase local state
 .firebase/
 
