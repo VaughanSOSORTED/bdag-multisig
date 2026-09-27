@@ -42,7 +42,28 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <aside
+          aria-label="Beta testing warning"
+          style={{
+            background: "#fff0f2",
+            borderBottom: "2px solid #f31332",
+            color: "#50232b",
+            fontFamily: "Arial, Helvetica, sans-serif",
+            padding: "14px 20px",
+            textAlign: "center",
+            lineHeight: 1.5,
+          }}
+        >
+          <strong style={{ color: "#c8102e" }}>⚠ BETA TEST — USE WITH CAUTION</strong>
+          <span style={{ display: "block", marginTop: "3px" }}>
+            BDAG Multisig is currently in beta testing. Avoid using large amounts of funds.
+            Check wallet addresses, transaction details and signing requests carefully
+            before approving any transaction.
+          </span>
+        </aside>
+        {children}
+      </body>
     </html>
   );
 }
