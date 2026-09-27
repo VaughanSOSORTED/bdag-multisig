@@ -527,6 +527,14 @@ export default function HomePage() {
                 >
                   Visit BDAG Community ↗
                 </a>
+
+                <a
+                  href="/BDAG-Multisig-User-Guide.pdf"
+                  download="BDAG-Multisig-User-Guide.pdf"
+                  className="secondary"
+                >
+                  ↓ Download User Guide (PDF)
+                </a>
               </div>
             </div>
 
